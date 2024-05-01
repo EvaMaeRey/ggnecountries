@@ -7,7 +7,9 @@ output: github_document
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  warning = F,
+  message = F
 )
 ```
 
@@ -55,31 +57,41 @@ geo_reference_northcarolina_county
 Where 'northcarolina' is is the character string that will replace 'scope' when using the code templates, and 'county' is the character string that will replace region in the 
 
 
-```{r nc_geo_reference_prep, eval = T}
+```{r ne_geo_reference_prep, eval = T}
 nc <- sf::st_read(system.file("shape/nc.shp", package="sf"))
 
-geo_reference_northcarolina_county <- nc |>
-  dplyr::select(county_name = NAME, fips = FIPS) |>
-  sf2stat:::sf_df_prep_for_stat(id_col_name = "county_name")
+library(tidyverse)
+rnaturalearth::ne_countries(  
+  scale = "medium", returnclass = "sf") |> 
+  select(name, continent, geometry, iso_a3) |>
+  rename(country_name = name,
+         iso3c = iso_a3
+         )  ->
+ref_data
 
-usethis::use_data(geo_reference_northcarolina_county, overwrite = T)
+
+geo_reference_world_country <- ref_data |>
+  dplyr::select(country_name, iso3c) |>
+  sf2stat:::sf_df_prep_for_stat(id_col_name = "country_name")
+
+usethis::use_data(geo_reference_world_country, overwrite = T)
 ```
 
 
 ```{r, eval = F}
-readme2pkg::chunk_to_dir("nc_geo_reference_prep", 
+knitrExtra::chunk_to_dir("ne_geo_reference_prep", 
                          dir = "data-raw/")
 ```
 
 ## Use template to create `stat_county()` functionality
 
 ```{r}
-readme2pkg::chunk_variants_to_dir(chunk_name = "stat_region_template",
-                                  file_name = "stat_county.R",
+knitrExtra:::chunk_variants_to_dir(chunk_name = "stat_region_template",
+                                  file_name = "stat_country.R",
                                   replace1 = "scope",
-                                  replacements1 = "northcarolina",
+                                  replacements1 = "world",
                                   replace2 = "region",
-                                  replacements2 = "county")
+                                  replacements2 = "country")
 ```
 
 
@@ -144,28 +156,31 @@ stat_region <- function(
 ### test it out `stat_county()`
 
 ```{r}
-source("./R/stat_county.R")
+source("./R/stat_country.R")
 
 library(ggplot2)
 
-nc <- sf::st_read(system.file("shape/nc.shp", package="sf"))
-
-nc |>
+ref_data |>
   sf::st_drop_geometry() |>
   ggplot() +
-  aes(fips = FIPS) +
-  stat_county() + 
-  aes(fill = BIR79)
+  aes(iso3c = iso3c) +
+  stat_country() + 
+  aes(fill = continent)
 ```
+
+
+
 
 
 ## Use template to create useful derivitive functions
 
 ```{r}
-readme2pkg::chunk_variants_to_dir(chunk_name = "geom_region_template",
-                                  file_name = "geom_county.R",
+knitrExtra:::chunk_variants_to_dir(chunk_name = "geom_region_template",
+                                  file_name = "geom_country.R",
                                   replace1 = "region",
-                                  replacements1 = "county")
+                                  replacements1 = "country",
+                                  replace2 = "fips",
+                                  replacements2 = "iso3c")
 ```
 
 
@@ -174,7 +189,7 @@ geom_region <- stat_region
 geom_region_label <- function(...){stat_region(geom = "text",...)}
 stamp_region <- function(...){
   stat_region(stamp = T, 
-              data = mtcars,
+              data = mtcars,  # what if this is . %>% slice(1) to avoid the complaining
               aes(fill = NULL, color = NULL, label = NULL, 
                   fips = NULL, region_name = NULL), 
               ...)}
@@ -192,32 +207,94 @@ stamp_region_label <- function(...){
 
 ### try those out
 
-```{r}
-source("./R/geom_county.R")
 
-nc |>
-  sf::st_drop_geometry() |>
+```{r, fig.show='hold', out.width="45%"}
+source("./R/geom_country.R")
+
+
+wwbi_data <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_data.csv')
+wwbi_series <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_series.csv')
+wwbi_country <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_country.csv')
+
+indicator_code_selection <- "BI.WAG.TOTL.GD.ZS"
+
+wwbi_series %>% 
+  filter(indicator_code == indicator_code_selection) %>% 
+  .[2] ->
+indicator_description
+
+wwbi_data %>% 
+  filter(year == 2016) %>% 
+  filter(indicator_code == indicator_code_selection) %>% 
+  arrange(-value) %>% 
+  filter(value >= 20) %>% 
+  left_join(wwbi_country) %>% 
+  pull(short_name) %>% paste(collapse = ", ") ->
+removed_countries
+
+# 1. Data, description, theme
+wwbi_data %>% 
+  filter(year == 2016) %>% 
+  filter(indicator_code == indicator_code_selection) %>%
+  filter(value < 20) %>% 
   ggplot() +
-  aes(fips = FIPS) +
-  geom_county() + 
-  geom_county_label(check_overlap = T,
-                    color = "grey85") +
-  aes(fill = BIR79) 
+  labs(title = paste0("Mapping 2016 '", indicator_code_selection,"':  ", indicator_description)) + 
+  labs(caption = paste("removing 20% or higher value countries: ", removed_countries)) + 
+  theme(panel.background = element_rect(fill = "cadetblue")) + 
+  theme(panel.grid = element_line(color = alpha("white", .5))) + 
+  labs(tag = 1)
 
-last_plot() + 
-  stamp_county() + 
-  stamp_county_label()
-
-ggplot() + 
-  stamp_county()
-
-last_plot() + 
-  stamp_county_label(check_overlap = T)
-
-last_plot() + 
-  stamp_county(keep_id = "Wake", fill = "darkred")
-
+# Countries annotation layer
+last_plot() + labs(tag = 2) +
+  stamp_country(fill = "darkgray", 
+                color = NA, 
+                drop_id = "Antarctica")
 ```
+
+```{r, fig.show='hold', out.width="45%"}
+# 3. add countries geom
+last_plot() + labs(tag = 3) +
+  aes(iso3c = country_code) + 
+  geom_country(linewidth = .05, 
+               alpha = .9)
+
+# 4. add fill representation
+last_plot() + labs(tag = 4) +
+  aes(fill = value) + 
+  scale_fill_viridis_c(direction = -1)
+```
+
+```{r, fig.show='hold', out.width="45%"}
+# 5 add label layer - default to country names
+last_plot() + labs(tag = 5) +
+  geom_country_label(check_overlap = T, 
+                     color = "white", size = 3) 
+
+# 6 change label layer to match fill representation
+last_plot() + labs(tag = 6) +
+  aes(label = paste0(round(value, 1), "%")) 
+```
+
+```{r, fig.show='hold', out.width="45%"}
+# 7 Annotation to draw attention to specific country
+last_plot() + labs(tag = 7) +
+  stamp_country(color = "red", 
+                keep_id = "Australia", fill = NA) + 
+  labs(subtitle = "Let's talk about how Australia fits in")
+
+# 8 watermark
+last_plot() + labs(tag = 8) +
+  geom_text(data = . %>% slice(1), 
+            aes(x = I(.5), y = I(.5)),
+            label = "#TidyTuesday plot", angle = 20, 
+            size = 20, 
+            color = "white",
+            alpha = .25)
+```
+
+
+
+
 
 
 ## Use template to write convenience functions for each region
@@ -225,14 +302,14 @@ last_plot() +
 
 
 ```{r eval= F}
-locations <- geo_reference_northcarolina_county$county_name
+locations <- geo_reference_world_country$country_name
 locations_snake <- tolower(locations) |> 
   stringr::str_replace_all(" ", "_")
 
-readme2pkg::chunk_variants_to_dir(chunk_name = "stamp_region_location", 
-                                  file_name = "stamp_county_location.R",
+knitrExtra:::chunk_variants_to_dir(chunk_name = "stamp_region_location", 
+                                  file_name = "stamp_country_location.R",
                                   replace1 = "region",
-                                  replacements1 = rep("county", length(locations)),
+                                  replacements1 = rep("country", length(locations)),
                               replace2 = "location",
                               replacements2 = locations_snake,
                               replace3 = "Location", 
@@ -263,18 +340,3 @@ stamp_region_label_location <- function(...){stamp_region_label(keep_id = 'Locat
 
 ```
 
-### Try it out
-
-```{r last_test}
-source("./R/stamp_county_location.R")
-
-nc |>
-  sf::st_drop_geometry() |>
-  ggplot() +
-  aes(fips = FIPS) + 
-  stamp_county() + 
-  stamp_county_ashe(fill = "darkred")
-
-last_plot() + 
-  stamp_county_label_ashe(color = "oldlace")
-```

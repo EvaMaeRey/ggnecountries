@@ -1,11 +1,11 @@
-compute_panel_northcarolina_county <- function(data, 
+compute_panel_world_country <- function(data, 
                                        scales, 
                                        keep_id = NULL, 
                                        drop_id = NULL, 
                                        stamp = FALSE){
   
-  if(!stamp){data <- dplyr::inner_join(data, geo_reference_northcarolina_county)}
-  if( stamp){data <- geo_reference_northcarolina_county }
+  if(!stamp){data <- dplyr::inner_join(data, geo_reference_world_country)}
+  if( stamp){data <- geo_reference_world_country }
   
   if(!is.null(keep_id)){ data <- dplyr::filter(data, id_col %in% keep_id) }
   if(!is.null(drop_id)){ data <- dplyr::filter(data, !(id_col %in% drop_id)) }
@@ -15,14 +15,14 @@ compute_panel_northcarolina_county <- function(data,
 }
 
 # step 2
-StatSfnorthcarolinacounty <- ggplot2::ggproto(`_class` = "StatSfnorthcarolinacounty",
+StatSfworldcountry <- ggplot2::ggproto(`_class` = "StatSfworldcountry",
                                 `_inherit` = ggplot2::Stat,
                                 # required_aes = c("fips|county_name"),
-                                compute_panel = compute_panel_northcarolina_county,
+                                compute_panel = compute_panel_world_country,
                                default_aes = ggplot2::aes(label = after_stat(id_col)))
 
 
-stat_county <- function(
+stat_country <- function(
       mapping = NULL,
       data = NULL,
       geom = ggplot2::GeomSf,
@@ -34,7 +34,7 @@ stat_county <- function(
       ...) {
 
   c(ggplot2::layer_sf(
-              stat = StatSfnorthcarolinacounty,  # proto object from step 2
+              stat = StatSfworldcountry,  # proto object from step 2
               geom = geom,  # inherit other behavior
               data = data,
               mapping = mapping,
